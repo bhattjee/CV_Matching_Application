@@ -103,6 +103,17 @@
 ## user_problem_statement: CV upload + mock jobs + matching + cover letter generation with universal LLM key
 
 ## backend:
+  - task: "Root endpoint (/api/)"
+    implemented: true
+    working: true
+    file: "/app/backend/server.py"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: false
+    status_history:
+        -working: true
+        -agent: "testing"
+        -comment: "✅ TESTED: GET /api/ returns {\"message\":\"Hello World\"} as expected."
   - task: "Seed mock jobs and list endpoint (/api/jobs)"
     implemented: true
     working: true
