@@ -85,7 +85,7 @@ def tokenize(text: str) -> List[str]:
 
 async def seed_jobs_if_empty():
     count = await db.jobs.count_documents({})
-    if count &gt; 0:
+    if count > 0:
         return
     samples = [
         Job(
