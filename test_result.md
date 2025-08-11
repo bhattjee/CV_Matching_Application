@@ -118,8 +118,8 @@
 
 ## test_plan:
   current_focus:
-    - "Backend endpoints verified; run frontend e2e flow on provided URL"
-    - "Verify error shown for cover letter when EMERGENT_LLM_KEY missing"
+    - "Frontend E2E testing completed successfully - all core flows working"
+    - "All required screenshots captured and verified"
   stuck_tasks:
     - "None"
   test_all: false
