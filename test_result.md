@@ -179,5 +179,7 @@
 ## agent_communication:
     -agent: "main"
     -message: "Please run backend tests focusing on CV upload, jobs listing, and matching. For cover letter, only test if EMERGENT_LLM_KEY is set in backend/.env. No URL hardcoding; all calls use /api prefix and envs."
+    -agent: "testing"
+    -message: "Completed comprehensive backend testing. All core endpoints working correctly. Created backend_test.py with realistic test data. All 6 testable endpoints passed, cover letter marked NA due to missing EMERGENT_LLM_KEY."
 
 #====================================================================================================
