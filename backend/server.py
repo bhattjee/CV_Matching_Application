@@ -146,7 +146,7 @@ def extract_text_from_pdf(file_bytes: bytes) -> str:
         logging.exception("PDF extraction failed")
         return ""
 
-def extract_text_from_docx(file_bytes: bytes) -&gt; str:
+def extract_text_from_docx(file_bytes: bytes) -> str:
     try:
         import docx2txt
         with tempfile.NamedTemporaryFile(delete=True, suffix=".docx") as tmp:
@@ -158,7 +158,7 @@ def extract_text_from_docx(file_bytes: bytes) -&gt; str:
         return ""
 
 
-def parse_sections(text: str) -&gt; Dict[str, Any]:
+def parse_sections(text: str) -> Dict[str, Any]:
     # Very lightweight heuristic parser
     lines = [l.strip() for l in text.splitlines()]
     sections = {"education": [], "experience": [], "skills": [], "certifications": [], "achievements": []}
@@ -210,7 +210,7 @@ def parse_sections(text: str) -&gt; Dict[str, Any]:
     return sections
 
 
-def compute_match(cv_sections: Dict[str, Any], job: Dict[str, Any]) -&gt; Dict[str, Any]:
+def compute_match(cv_sections: Dict[str, Any], job: Dict[str, Any]) -> Dict[str, Any]:
     cv_text = " ".join([
         " ".join(cv_sections.get("education", [])),
         " ".join(cv_sections.get("experience", [])),
@@ -222,7 +222,7 @@ def compute_match(cv_sections: Dict[str, Any], job: Dict[str, Any]) -&gt; Dict[s
 
     cv_tokens = set(tokenize(cv_text))
     job_tokens = set(tokenize(job_text))
-    overlap = cv_tokens &amp; job_tokens
+    overlap = cv_tokens & job_tokens
     jaccard = (len(overlap) / len(cv_tokens | job_tokens)) if (cv_tokens or job_tokens) else 0.0
 
     skill_overlaps = []
@@ -316,7 +316,7 @@ async def match_cv_job(body: MatchRequest):
         job = {"description": body.job_description, "requirements": [], "preferred": []}
         result = compute_match(sections, job)
         return {"cv_id": None, "job_id": None, "result": result}
-    raise HTTPException(status_code=400, detail="Provide (cv_id &amp; job_id) or (cv_text &amp; job_description)")
+    raise HTTPException(status_code=400, detail="Provide (cv_id & job_id) or (cv_text & job_description)")
 
 @api_router.post("/cover-letter/generate")
 async def generate_cover_letter(body: CoverLetterRequest):
