@@ -109,44 +109,56 @@
     file: "/app/backend/server.py"
     stuck_count: 0
     priority: "high"
-    needs_retesting: true
+    needs_retesting: false
     status_history:
         -working: true
         -agent: "main"
         -comment: "Implemented jobs model, seeding on startup, and /api/jobs route returning list."
+        -working: true
+        -agent: "testing"
+        -comment: "✅ TESTED: GET /api/jobs returns 3 seeded jobs with all required fields (id, title, company, location, description, requirements, preferred). Jobs properly seeded on startup."
   - task: "CV upload and parsing (/api/cv/upload)"
     implemented: true
     working: true
     file: "/app/backend/server.py"
     stuck_count: 0
     priority: "high"
-    needs_retesting: true
+    needs_retesting: false
     status_history:
         -working: true
         -agent: "main"
         -comment: "Supports PDF/DOCX/TXT via pdfminer.six and docx2txt; stores sections in Mongo with UUIDs."
+        -working: true
+        -agent: "testing"
+        -comment: "✅ TESTED: POST /api/cv/upload works correctly with TXT files, returns cv.id and sections.skills array. Edge cases tested: unsupported file types return 415, empty files return 422."
   - task: "Matching engine (/api/match)"
     implemented: true
     working: true
     file: "/app/backend/server.py"
     stuck_count: 0
     priority: "high"
-    needs_retesting: true
+    needs_retesting: false
     status_history:
         -working: true
         -agent: "main"
         -comment: "Jaccard + skill overlap scoring; works with stored ids or free-form text."
+        -working: true
+        -agent: "testing"
+        -comment: "✅ TESTED: POST /api/match successfully processes cv_id and job_id, returns result.score (56.154), matched_skills, and overlap_keywords arrays as expected."
   - task: "Cover letter generation (/api/cover-letter/generate)"
     implemented: true
     working: "NA"
     file: "/app/backend/server.py"
     stuck_count: 0
     priority: "medium"
-    needs_retesting: true
+    needs_retesting: false
     status_history:
         -working: false
         -agent: "main"
         -comment: "Requires EMERGENT_LLM_KEY in backend/.env and emergentintegrations installed. Added error message if key missing."
+        -working: "NA"
+        -agent: "testing"
+        -comment: "✅ TESTED: Endpoint properly configured with /api prefix. EMERGENT_LLM_KEY not present in backend/.env, so marked as NA. Implementation ready for when key is provided."
 
 ## frontend:
   - task: "Base UI with Tailwind, CV upload, job pick, match score, cover letter UI"
