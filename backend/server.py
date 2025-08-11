@@ -135,7 +135,7 @@ async def seed_jobs_if_empty():
 
 # Basic PDF/DOCX/TXT extraction
 
-def extract_text_from_pdf(file_bytes: bytes) -&gt; str:
+def extract_text_from_pdf(file_bytes: bytes) -> str:
     try:
         from pdfminer.high_level import extract_text
         with tempfile.NamedTemporaryFile(delete=True, suffix=".pdf") as tmp:
