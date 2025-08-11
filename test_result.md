@@ -100,4 +100,84 @@
 
 #====================================================================================================
 # Testing Data - Main Agent and testing sub agent both should log testing data below this section
+## user_problem_statement: CV upload + mock jobs + matching + cover letter generation with universal LLM key
+
+## backend:
+  - task: "Seed mock jobs and list endpoint (/api/jobs)"
+    implemented: true
+    working: true
+    file: "/app/backend/server.py"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: true
+    status_history:
+        -working: true
+        -agent: "main"
+        -comment: "Implemented jobs model, seeding on startup, and /api/jobs route returning list."
+  - task: "CV upload and parsing (/api/cv/upload)"
+    implemented: true
+    working: true
+    file: "/app/backend/server.py"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: true
+    status_history:
+        -working: true
+        -agent: "main"
+        -comment: "Supports PDF/DOCX/TXT via pdfminer.six and docx2txt; stores sections in Mongo with UUIDs."
+  - task: "Matching engine (/api/match)"
+    implemented: true
+    working: true
+    file: "/app/backend/server.py"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: true
+    status_history:
+        -working: true
+        -agent: "main"
+        -comment: "Jaccard + skill overlap scoring; works with stored ids or free-form text."
+  - task: "Cover letter generation (/api/cover-letter/generate)"
+    implemented: true
+    working: "NA"
+    file: "/app/backend/server.py"
+    stuck_count: 0
+    priority: "medium"
+    needs_retesting: true
+    status_history:
+        -working: false
+        -agent: "main"
+        -comment: "Requires EMERGENT_LLM_KEY in backend/.env and emergentintegrations installed. Added error message if key missing."
+
+## frontend:
+  - task: "Base UI with Tailwind, CV upload, job pick, match score, cover letter UI"
+    implemented: true
+    working: true
+    file: "/app/frontend/src/App.js"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: false
+    status_history:
+        -working: true
+        -agent: "main"
+        -comment: "Functional UI wired to backend via REACT_APP_BACKEND_URL."
+
+## metadata:
+  created_by: "main_agent"
+  version: "1.0"
+  test_sequence: 0
+  run_ui: false
+
+## test_plan:
+  current_focus:
+    - "Test backend endpoints: /api/, /api/jobs, /api/cv/upload, /api/match"
+    - "If EMERGENT_LLM_KEY present, test /api/cover-letter/generate"
+  stuck_tasks:
+    - "None"
+  test_all: false
+  test_priority: "high_first"
+
+## agent_communication:
+    -agent: "main"
+    -message: "Please run backend tests focusing on CV upload, jobs listing, and matching. For cover letter, only test if EMERGENT_LLM_KEY is set in backend/.env. No URL hardcoding; all calls use /api prefix and envs."
+
 #====================================================================================================
