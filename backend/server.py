@@ -12,20 +12,31 @@ import uuid
 from datetime import datetime
 import tempfile
 import io
+from contextlib import asynccontextmanager
 import re
+from openai import OpenAI
+import magic
 
 # Load env
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / '.env')
 
-# MongoDB connection - MUST use env vars
+# MongoDB connection
 mongo_url = os.environ['MONGO_URL']
 client = AsyncIOMotorClient(mongo_url)
 db = client[os.environ['DB_NAME']]
 
-# App and Router (all routes behind /api)
-app = FastAPI()
+# Initialize DeepInfra client
+deepinfra_client = OpenAI(
+    api_key=os.environ.get("DEEPINFRA_API_KEY"),
+    base_url="https://api.deepinfra.com/v1/openai",
+)
+
+# Router (all routes behind /api)
 api_router = APIRouter(prefix="/api")
+
+# Initialize file type detector
+file_type_detector = magic.Magic(mime=True)
 
 # ---------- Models ----------
 class StatusCheck(BaseModel):
@@ -69,8 +80,6 @@ class CoverLetterRequest(BaseModel):
     tone: str = "formal"
     template: str = "classic"
     personal_note: Optional[str] = None
-    model_provider: Optional[str] = None  # openai, anthropic, gemini
-    model_name: Optional[str] = None
 
 # ---------- Utilities ----------
 STOPWORDS = set(
@@ -133,44 +142,82 @@ async def seed_jobs_if_empty():
     ]
     await db.jobs.insert_many(samples)
 
-# Basic PDF/DOCX/TXT extraction
-
+# ---------- File Processing ----------
 def extract_text_from_pdf(file_bytes: bytes) -> str:
     try:
         from pdfminer.high_level import extract_text
+        from io import BytesIO
+        
+        try:
+            text = extract_text(BytesIO(file_bytes))
+            if text.strip(): 
+                return text
+        except Exception as e:
+            logging.warning(f"PDF direct extraction failed: {str(e)}")
+
         with tempfile.NamedTemporaryFile(delete=True, suffix=".pdf") as tmp:
             tmp.write(file_bytes)
             tmp.flush()
-            return extract_text(tmp.name) or ""
+            text = extract_text(tmp.name)
+            if not text.strip():
+                raise ValueError("Extracted empty text")
+            return text
+            
     except Exception as e:
-        logging.exception("PDF extraction failed")
+        logging.error(f"PDF extraction error: {str(e)}")
         return ""
 
 def extract_text_from_docx(file_bytes: bytes) -> str:
     try:
         import docx2txt
+        from io import BytesIO
+        
+        try:
+            text = docx2txt.process(BytesIO(file_bytes))
+            if text.strip(): 
+                return text
+        except Exception as e:
+            logging.warning(f"DOCX direct extraction failed: {str(e)}")
+            
         with tempfile.NamedTemporaryFile(delete=True, suffix=".docx") as tmp:
             tmp.write(file_bytes)
             tmp.flush()
-            return docx2txt.process(tmp.name) or ""
-    except Exception:
-        logging.exception("DOCX extraction failed")
+            text = docx2txt.process(tmp.name)
+            if not text.strip():
+                raise ValueError("Extracted empty text")
+            return text
+            
+    except Exception as e:
+        logging.error(f"DOCX extraction error: {str(e)}")
         return ""
 
+def extract_text_from_txt(file_bytes: bytes) -> str:
+    encodings = ['utf-8', 'latin-1', 'windows-1252', 'ascii']
+    for encoding in encodings:
+        try:
+            return file_bytes.decode(encoding)
+        except UnicodeDecodeError:
+            continue
+    return ""
+
+def get_file_type(file_bytes: bytes) -> str:
+    try:
+        return file_type_detector.from_buffer(file_bytes)
+    except Exception:
+        return "application/octet-stream"
 
 def parse_sections(text: str) -> Dict[str, Any]:
-    # Very lightweight heuristic parser
     lines = [l.strip() for l in text.splitlines()]
     sections = {"education": [], "experience": [], "skills": [], "certifications": [], "achievements": []}
 
     current = None
     buffer: List[str] = []
+    
     def flush():
         nonlocal buffer, current
         if current and buffer:
             content = " ".join(buffer).strip()
             if current == "skills":
-                # Split skills by comma or bullets
                 skills = re.split(r",|•|\u2022|\|", content)
                 sections["skills"] = [s.strip() for s in skills if s.strip()]
             else:
@@ -200,7 +247,6 @@ def parse_sections(text: str) -> Dict[str, Any]:
                 buffer.append(ln)
     flush()
 
-    # If skills empty, infer top keywords
     if not sections["skills"]:
         toks = tokenize(text)
         freq: Dict[str, int] = {}
@@ -208,7 +254,6 @@ def parse_sections(text: str) -> Dict[str, Any]:
             freq[t] = freq.get(t, 0) + 1
         sections["skills"] = [t for t, c in sorted(freq.items(), key=lambda x: -x[1])[:15]]
     return sections
-
 
 def compute_match(cv_sections: Dict[str, Any], job: Dict[str, Any]) -> Dict[str, Any]:
     cv_text = " ".join([
@@ -260,27 +305,52 @@ async def upload_cv(
     file: UploadFile = File(...),
     session_id: Optional[str] = Form(None),
 ):
-    # Validate
-    filename = file.filename
-    content_type = file.content_type or "application/octet-stream"
+    if not file.filename:
+        raise HTTPException(400, "No filename provided")
+    
+    filename = file.filename.lower()
     data = await file.read()
+    
+    if not data:
+        raise HTTPException(400, "Empty file uploaded")
 
-    # Extract text
-    text = ""
-    if filename.lower().endswith(".pdf") or content_type == "application/pdf":
-        text = extract_text_from_pdf(data)
-    elif filename.lower().endswith(".docx"):
-        text = extract_text_from_docx(data)
-    elif filename.lower().endswith(".txt") or content_type.startswith("text/"):
-        try:
-            text = data.decode("utf-8", errors="ignore")
-        except Exception:
-            text = data.decode("latin-1", errors="ignore")
-    else:
-        raise HTTPException(status_code=415, detail="Unsupported file type. Use PDF, DOCX, or TXT.")
+    content_type = get_file_type(data)
+    logging.info(f"Uploading file: {filename}, detected type: {content_type}")
 
+    valid_types = {
+        'application/pdf': extract_text_from_pdf,
+        'application/vnd.openxmlformats-officedocument.wordprocessingml.document': extract_text_from_docx,
+        'text/plain': extract_text_from_txt
+    }
+    
+    extractor = None
+    for mime, func in valid_types.items():
+        if mime in content_type:
+            extractor = func
+            break
+        if filename.endswith(mime.split('/')[-1].split('.')[-1]):
+            extractor = func
+            break
+
+    if not extractor:
+        raise HTTPException(415, "Unsupported file type. Use PDF, DOCX, or TXT")
+
+    text = extractor(data)
     if not text.strip():
-        raise HTTPException(status_code=422, detail="Could not extract any text from the uploaded file.")
+        if content_type == 'application/pdf':
+            try:
+                from pdf2image import convert_from_bytes
+                import pytesseract
+                images = convert_from_bytes(data)
+                text = "\n".join(pytesseract.image_to_string(img) for img in images)
+                if not text.strip():
+                    raise HTTPException(422, "Could not extract text - file may be image-based")
+            except ImportError:
+                logging.warning("OCR dependencies not installed")
+                raise HTTPException(422, "Could not extract text - install OCR dependencies for image-based PDFs")
+            except Exception as e:
+                logging.error(f"OCR failed: {str(e)}")
+                raise HTTPException(422, "OCR processing failed")
 
     sections = parse_sections(text)
     cv = CV(
@@ -295,9 +365,15 @@ async def upload_cv(
 
 @api_router.get("/jobs", response_model=List[Job])
 async def list_jobs():
-    await seed_jobs_if_empty()
-    items = await db.jobs.find().to_list(100)
-    return [Job(**it) for it in items]
+    logger.info("Jobs endpoint accessed")
+    try:
+        await seed_jobs_if_empty()
+        items = await db.jobs.find().to_list(100)
+        logger.info(f"Found {len(items)} jobs")
+        return [Job(**it) for it in items]
+    except Exception as e:
+        logger.error(f"Error fetching jobs: {str(e)}")
+        raise HTTPException(status_code=500, detail="Failed to fetch jobs")
 
 @api_router.post("/match")
 async def match_cv_job(body: MatchRequest):
@@ -310,7 +386,6 @@ async def match_cv_job(body: MatchRequest):
             raise HTTPException(status_code=404, detail="Job not found")
         result = compute_match(cv_doc.get("sections", {}), job_doc)
         return {"cv_id": body.cv_id, "job_id": body.job_id, "result": result}
-    # Fallback free-form
     if body.cv_text and body.job_description:
         sections = parse_sections(body.cv_text)
         job = {"description": body.job_description, "requirements": [], "preferred": []}
@@ -320,14 +395,6 @@ async def match_cv_job(body: MatchRequest):
 
 @api_router.post("/cover-letter/generate")
 async def generate_cover_letter(body: CoverLetterRequest):
-    # Check key
-    from dotenv import load_dotenv as _ld
-    _ld(ROOT_DIR / '.env')
-    emergent_key = os.environ.get("EMERGENT_LLM_KEY")
-    if not emergent_key:
-        raise HTTPException(status_code=400, detail="EMERGENT_LLM_KEY not set in backend/.env. Please provide the universal key.")
-
-    # Load CV and Job
     cv_doc = await db.cvs.find_one({"id": body.cv_id, "session_id": body.session_id})
     if not cv_doc:
         raise HTTPException(status_code=404, detail="CV not found for this session")
@@ -335,13 +402,10 @@ async def generate_cover_letter(body: CoverLetterRequest):
     if not job_doc:
         raise HTTPException(status_code=404, detail="Job not found")
 
-    # Prepare prompt
     cv_sections = cv_doc.get("sections", {})
     job_desc = job_doc.get("description", "")
     reqs = ", ".join(job_doc.get("requirements", []))
     prefs = ", ".join(job_doc.get("preferred", []))
-
-    system_message = "You are an expert career assistant that writes concise, personalized cover letters."
 
     prompt = f"""
 Write a {body.tone} cover letter using the classic professional format.
@@ -363,34 +427,21 @@ Instructions:
 - Keep it under 250 words. British English.
 """
 
-    # Use emergentintegrations LLM
     try:
-        from emergentintegrations.llm.chat import LlmChat, UserMessage
-    except Exception as e:
-        logging.exception("emergentintegrations import failed")
-        raise HTTPException(status_code=500, detail="LLM integration not available. Please install emergentintegrations.")
-
-    # Initialize
-    chat = LlmChat(
-        api_key=emergent_key,
-        session_id=f"cover-letter-{body.session_id}",
-        system_message=system_message,
-    )
-
-    # Model selection (default gpt-4o-mini if not provided)
-    if body.model_provider and body.model_name:
-        chat = chat.with_model(body.model_provider, body.model_name)
-    else:
-        chat = chat.with_model("openai", "gpt-4o-mini")
-
-    # Generate
-    try:
-        response_text = await chat.send_message(UserMessage(text=prompt))
+        response = deepinfra_client.chat.completions.create(
+            model="mistralai/Mistral-7B-Instruct-v0.3",
+            messages=[
+                {"role": "system", "content": "You are an expert career assistant that writes concise, personalized cover letters."},
+                {"role": "user", "content": prompt}
+            ],
+            temperature=0.7,
+            max_tokens=500
+        )
+        response_text = response.choices[0].message.content
     except Exception as e:
         logging.exception("LLM generation failed")
         raise HTTPException(status_code=502, detail=f"Cover letter generation failed: {str(e)[:200]}")
 
-    # Save
     cover_id = str(uuid.uuid4())
     doc = {
         "id": cover_id,
@@ -405,28 +456,37 @@ Instructions:
     await db.cover_letters.insert_one(doc)
     return {"id": cover_id, "content": response_text}
 
-# Include router and CORS
+# ---------- App Setup ----------
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    logging.info("Starting server...")
+    try:
+        await seed_jobs_if_empty()
+        test_text = "Test text extraction"
+        assert extract_text_from_txt(test_text.encode('utf-8')) == test_text
+    except Exception as e:
+        logging.error(f"Startup failed: {str(e)}")
+        raise
+    yield
+    logging.info("Shutting down server...")
+    client.close()
+
+app = FastAPI(lifespan=lifespan)
 app.include_router(api_router)
 app.add_middleware(
     CORSMiddleware,
+    allow_origins=["*"],
     allow_credentials=True,
-    allow_origins=os.environ.get('CORS_ORIGINS', '*').split(','),
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-# Logging
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
 logger = logging.getLogger(__name__)
 
-@app.on_event("startup")
-async def on_startup():
-    try:
-        await seed_jobs_if_empty()
-        logging.info("Startup completed: jobs seeded if needed.")
-    except Exception:
-        logging.exception("Startup tasks failed")
-
-@app.on_event("shutdown")
-async def shutdown_db_client():
-    client.close()
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run("server:app", host="0.0.0.0", port=8000, reload=True)

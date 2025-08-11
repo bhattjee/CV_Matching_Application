@@ -2,8 +2,7 @@ import React, { useEffect, useMemo, useState } from "react";
 import axios from "axios";
 import "./App.css";
 
-const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
-const API = `${BACKEND_URL}/api`;
+const API = 'http://localhost:8000/api';
 
 function useSessionId() {
   const [sid, setSid] = useState("");
@@ -73,17 +72,55 @@ function App() {
 
   const onUpload = async (file) => {
     if (!file) return;
+    
+    const validTypes = [
+      'application/pdf',
+      'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+      'text/plain',
+      '.pdf',
+      '.docx',
+      '.txt'
+    ];
+    
+    const fileExt = file.name.split('.').pop().toLowerCase();
+    const isValidType = validTypes.includes(file.type) || validTypes.includes(`.${fileExt}`);
+    
+    if (!isValidType) {
+      setError("Invalid file type. Please upload PDF, DOCX, or TXT.");
+      return;
+    }
+
+    if (file.size > 5 * 1024 * 1024) {
+      setError("File too large. Max 5MB allowed.");
+      return;
+    }
+
     setUploading(true);
     setError("");
+    
     try {
       const fd = new FormData();
       fd.append("file", file);
       fd.append("session_id", sessionId);
-      const r = await axios.post(`${API}/cv/upload`, fd, { headers: { "Content-Type": "multipart/form-data" } });
+      
+      const r = await axios.post(`${API}/cv/upload`, fd, {
+        headers: { 
+          "Content-Type": "multipart/form-data",
+        },
+        timeout: 30000
+      });
+      
       setCv(r.data.cv);
     } catch (e) {
-      const msg = e?.response?.data?.detail || "Upload failed";
-      setError(msg);
+      let errorMsg = "Upload failed";
+      if (e.response) {
+        if (e.response.status === 422) {
+          errorMsg = "The file appears to be image-based. Try a text-based file or ensure OCR is configured.";
+        } else {
+          errorMsg = e.response.data?.detail || e.response.statusText;
+        }
+      }
+      setError(errorMsg);
     } finally {
       setUploading(false);
     }
