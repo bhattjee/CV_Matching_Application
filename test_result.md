@@ -100,6 +100,32 @@
 
 #====================================================================================================
 # Testing Data - Main Agent and testing sub agent both should log testing data below this section
+## frontend:
+  - task: "End-to-end UI flow: upload TXT CV, select job, compute match, try generate cover letter"
+    implemented: true
+    working: true
+    file: "/app/frontend/src/App.js"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: true
+    status_history:
+        -working: true
+        -agent: "main"
+        -comment: "UI renders, connects to backend. Needs automated test run now."
+
+## test_plan:
+  current_focus:
+    - "Backend endpoints verified; run frontend e2e flow on provided URL"
+    - "Verify error shown for cover letter when EMERGENT_LLM_KEY missing"
+  stuck_tasks:
+    - "None"
+  test_all: false
+  test_priority: "high_first"
+
+## agent_communication:
+    -agent: "main"
+    -message: "User approved basic tests for both. Please run frontend tests on the provided URL with these steps: 1) Upload a small TXT file with skills including React, FastAPI, MongoDB; 2) Click the first job card; 3) Click Compute match and expect score number; 4) Click Generate and expect an error message since EMERGENT_LLM_KEY is not yet set. Record results back into this file."
+
 ## user_problem_statement: CV upload + mock jobs + matching + cover letter generation with universal LLM key
 
 ## backend:
