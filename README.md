@@ -107,10 +107,3 @@ The test suite covers:
 ## License
 
 This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
-
-## Security Notes
-
-⚠️ **IMPORTANT**: The `.env` file contains sensitive configuration data including API keys. Ensure this file is:
-- Added to `.gitignore`
-- Never committed to version control
-- Properly secured in production environments
